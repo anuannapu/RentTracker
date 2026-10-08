@@ -11,7 +11,7 @@ const store = {
 };
 
 const state = {
-  zip: '', place: '', center: null, listings: [], view: 'results', demo: true, hl: null, beds: 0,
+  zip: '', place: '', center: null, listings: [], view: 'results', demo: true, hl: null, beds: 0, cmp: [], trend: [], trendSimulated: true,
   saved: store.get('rt.saved', {}), // id -> {listing, history:[{date,price}]}
 };
 const markerById = new Map();
@@ -58,10 +58,44 @@ function demoListings(zip, c) {
   });
 }
 
-async function liveListings(zip, key) {
-  const r = await fetch(`https://api.rentcast.io/v1/listings/rental/long-term?zipCode=${zip}&status=Active&limit=100`, { headers: { 'X-Api-Key': key } });
-  if (!r.ok) throw new Error(`RentCast returned an error (${r.status}). Check your API key in settings.`);
-  return (await r.json()).filter((x) => x.price && x.latitude && x.longitude).map((x) => ({
+/* Live data: via the serverless proxy (RT_CONFIG.API_BASE) if configured, else direct with the visitor's own key. */
+const CFG = window.RT_CONFIG || {};
+const isLive = () => Boolean(CFG.API_BASE || store.get('rt.key', ''));
+
+async function rc(kind, zip) {
+  let url, opts = {};
+  if (CFG.API_BASE) {
+    url = `${CFG.API_BASE.replace(/\/$/, '')}/${kind}?zip=${zip}`;
+  } else {
+    url = kind === 'listings'
+      ? `https://api.rentcast.io/v1/listings/rental/long-term?zipCode=${zip}&status=Active&limit=100`
+      : `https://api.rentcast.io/v1/markets?zipCode=${zip}&dataType=Rental&historyRange=12`;
+    opts = { headers: { 'X-Api-Key': store.get('rt.key', '') } };
+  }
+  const r = await fetch(url, opts);
+  if (!r.ok) throw new Error(`The rental data service returned an error (${r.status}).`);
+  return r.json();
+}
+
+async function liveTrend(zip) {
+  const h = (await rc('market', zip))?.rentalData?.history ?? {};
+  return Object.entries(h).sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([k, v]) => ({ date: k.slice(0, 7), rent: v.averageRent ?? v.medianRent })).filter((p) => p.rent);
+}
+
+function demoTrend(zip, endRent) { // simulated 12-month history ending at today's median
+  const rand = rng(+zip + 7), drift = (rand() - 0.35) * 0.012, now = new Date();
+  let v = endRent; const pts = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    pts.unshift({ date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, rent: Math.round(v) });
+    v /= 1 + drift + (rand() - 0.5) * 0.01;
+  }
+  return pts;
+}
+
+async function liveListings(zip) {
+  return (await rc('listings', zip)).filter((x) => x.price && x.latitude && x.longitude).map((x) => ({
     id: String(x.id), address: x.formattedAddress, price: x.price,
     beds: x.bedrooms ?? 0, baths: x.bathrooms ?? 0, sqft: x.squareFootage ?? 0,
     type: x.propertyType === 'Single Family' ? 'House' : (x.propertyType || 'Apartment'),
@@ -77,14 +111,16 @@ async function search(zip) {
   $('list').innerHTML = '<div class="empty">Looking around the neighborhood…</div>';
   try {
     const c = await geocodeZip(zip);
-    const key = store.get('rt.key', '');
-    state.zip = zip; state.place = c.name; state.center = c;
-    state.listings = key ? await liveListings(zip, key) : demoListings(zip, c);
-    state.demo = !key;
+    state.zip = zip; state.place = c.name; state.center = c; state.cmp = [];
+    state.demo = !isLive();
+    state.listings = state.demo ? demoListings(zip, c) : await liveListings(zip);
+    try { state.trend = state.demo ? [] : await liveTrend(zip); } catch { state.trend = []; }
+    if (state.trend.length < 2) state.trend = demoTrend(zip, median(state.listings.map((l) => l.price)));
+    state.trendSimulated = state.demo || !state.trend.length;
     syncSavedPrices();
     map.setView([c.lat, c.lng], 13);
     state.view = 'results'; setTabs();
-    render();
+    render(); renderTrend();
     window.scrollTo({ top: 0 });
   } catch (e) {
     $('list').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
@@ -208,12 +244,103 @@ function render() {
         <div class="facts"><span><b>${l.beds === 0 ? 'Studio' : l.beds}</b>${l.beds === 0 ? '' : ' bd'}</span><span><b>${l.baths}</b> ba</span>${l.sqft ? `<span><b>${l.sqft.toLocaleString()}</b> sqft</span>` : ''}</div>
         <div class="addr">${esc(l.address)}</div>
         <div class="foot">${vs}<span>${l.daysOnMarket === 0 ? 'Today' : l.daysOnMarket + 'd'} · ${esc(l.type)}</span></div>
+        <button class="cmp ${state.cmp.includes(l.id) ? 'on' : ''}" data-cmp="${esc(l.id)}">${state.cmp.includes(l.id) ? '✓ Comparing' : '⇄ Compare'}</button>
         ${sv ? `<div class="track">${priceBadge(l.id)}${spark(sv.history)}</div>` : ''}
       </div></article>`;
   }).join('')
     : `<div class="empty">${state.view === 'saved' ? 'Nothing tracked yet. Tap the ♥ on a rental to watch its price.' : 'No rentals match those filters. Try widening them.'}</div>`;
 
   renderMap(items);
+  renderCmpBar();
+}
+
+/* ---------- rent trend ---------- */
+const monthLabel = (ym) => new Date(ym + '-01T00:00:00').toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+
+function renderTrend() {
+  const el = $('trend'), pts = state.trend, n = pts.length;
+  if (state.view !== 'results' || n < 2) { el.hidden = true; return; }
+  el.hidden = false;
+  const first = pts[0].rent, last = pts[n - 1].rent, chg = ((last - first) / first) * 100;
+  const W = 600, H = 150, P = 12, vals = pts.map((p) => p.rent);
+  const lo = Math.min(...vals) * 0.98, hi = Math.max(...vals) * 1.02;
+  const x = (i) => P + (i * (W - 2 * P)) / (n - 1), y = (v) => H - P - ((v - lo) / (hi - lo)) * (H - 2 * P);
+  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.rent).toFixed(1)}`).join(' ');
+  const cls = Math.abs(chg) < 0.5 ? '' : chg < 0 ? 'down' : 'up'; // falling rent is good news for renters
+  el.innerHTML = `
+    <div class="thead">
+      <div><div class="k">12-month rent trend · ${esc(state.zip)}</div>
+        <div class="v">${money(last)} <span class="chg ${cls}">${chg < 0 ? '▼' : '▲'} ${Math.abs(chg).toFixed(1)}%</span></div></div>
+      <div class="s">${state.trendSimulated ? 'Simulated history (demo)' : 'Average rent, market data'}<br>${monthLabel(pts[0].date)} → ${monthLabel(pts[n - 1].date)}</div>
+    </div>
+    <div class="chart">
+      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Rent trend, ${n} months">
+        <defs><linearGradient id="tg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--brand)" stop-opacity=".28"/><stop offset="1" stop-color="var(--brand)" stop-opacity="0"/></linearGradient></defs>
+        <path d="${line} L${x(n - 1)},${H - P} L${x(0)},${H - P} Z" fill="url(#tg)"/>
+        <path d="${line}" class="tline"/>
+        <circle class="dot" r="5" style="display:none"/>
+        <circle cx="${x(n - 1)}" cy="${y(last)}" r="4" class="endpt"/>
+      </svg>
+      <div class="tip" hidden></div>
+    </div>`;
+  const svg = el.querySelector('svg'), dot = svg.querySelector('.dot'), tip = el.querySelector('.tip');
+  svg.addEventListener('mousemove', (e) => {
+    const r = svg.getBoundingClientRect();
+    const i = Math.max(0, Math.min(n - 1, Math.round(((((e.clientX - r.left) / r.width) * W - P) / (W - 2 * P)) * (n - 1))));
+    dot.setAttribute('cx', x(i)); dot.setAttribute('cy', y(pts[i].rent)); dot.style.display = '';
+    tip.hidden = false; tip.textContent = `${monthLabel(pts[i].date)} · ${money(pts[i].rent)}`;
+    tip.style.left = `${(x(i) / W) * 100}%`;
+  });
+  svg.addEventListener('mouseleave', () => { dot.style.display = 'none'; tip.hidden = true; });
+}
+
+/* ---------- compare ---------- */
+const findListing = (id) => [...state.listings, ...Object.values(state.saved).map((s) => s.listing)].find((l) => l.id === id);
+
+function toggleCmp(id) {
+  const i = state.cmp.indexOf(id);
+  if (i >= 0) state.cmp.splice(i, 1);
+  else { if (state.cmp.length >= 2) state.cmp.shift(); state.cmp.push(id); }
+  render();
+}
+
+function renderCmpBar() {
+  const n = state.cmp.length;
+  $('cmpbar').hidden = n === 0;
+  $('cmpMsg').textContent = n === 1 ? 'Pick one more rental to compare' : '2 rentals selected';
+  $('cmpGo').disabled = n < 2;
+}
+
+function openCompare() {
+  const [a, b] = state.cmp.map(findListing);
+  if (!a || !b) return;
+  const med = median(state.listings.map((l) => l.price));
+  const vsArea = (l) => (med ? Math.round(((l.price - med) / med) * 100) : 0);
+  const rows = [
+    ['Rent', (l) => money(l.price) + '/mo', (l) => l.price, 'low'],
+    ['Bedrooms', (l) => (l.beds === 0 ? 'Studio' : l.beds), (l) => l.beds, 'high'],
+    ['Bathrooms', (l) => l.baths, (l) => l.baths, 'high'],
+    ['Size', (l) => (l.sqft ? l.sqft.toLocaleString() + ' sqft' : '—'), (l) => l.sqft || NaN, 'high'],
+    ['Per sq ft', (l) => (l.sqft ? '$' + (l.price / l.sqft).toFixed(2) : '—'), (l) => (l.sqft ? l.price / l.sqft : NaN), 'low'],
+    ['Vs area median', (l) => `${vsArea(l) > 0 ? '+' : ''}${vsArea(l)}%`, (l) => l.price, 'low'],
+    ['On market', (l) => (l.daysOnMarket === 0 ? 'Today' : l.daysOnMarket + ' days'), null, null],
+    ['Type', (l) => esc(l.type), null, null],
+  ];
+  const win = (va, vb, dir) => {
+    if (!dir || !Number.isFinite(va) || !Number.isFinite(vb) || va === vb) return ['', ''];
+    const aWins = dir === 'low' ? va < vb : va > vb;
+    return aWins ? ['win', ''] : ['', 'win'];
+  };
+  const head = (l) => `<th><div class="cart">${art(l)}</div><div class="caddr">${esc(l.address)}</div></th>`;
+  const diff = Math.abs(a.price - b.price), cheaper = a.price < b.price ? a : b;
+  $('compareBody').innerHTML = `
+    <table class="ctable"><thead><tr><th></th>${head(a)}${head(b)}</tr></thead><tbody>
+    ${rows.map(([label, fmt, val, dir]) => {
+      const [wa, wb] = val ? win(val(a), val(b), dir) : ['', ''];
+      return `<tr><td class="lbl">${label}</td><td class="${wa}">${fmt(a)}</td><td class="${wb}">${fmt(b)}</td></tr>`;
+    }).join('')}</tbody></table>
+    <p class="verdict">${diff ? `<b>${esc(cheaper.address)}</b> is ${money(diff)}/mo cheaper — ${money(diff * 12)} less per year.` : 'Both rentals have the same rent.'}</p>`;
+  $('compare').showModal();
 }
 
 function renderMap(items) {
@@ -249,8 +376,10 @@ document.querySelectorAll('.chips [data-zip]').forEach((b) => b.addEventListener
 document.querySelectorAll('.tab[data-view]').forEach((t) => t.addEventListener('click', () => {
   state.view = t.dataset.view; setTabs();
   if (!document.body.classList.contains('searched')) { document.body.classList.add('searched'); $('app').hidden = false; map.invalidateSize(); }
-  render();
+  render(); renderTrend();
 }));
+$('cmpGo').addEventListener('click', openCompare);
+$('cmpClear').addEventListener('click', () => { state.cmp = []; render(); });
 $('bedSeg').addEventListener('click', (e) => {
   const b = e.target.closest('[data-beds]'); if (!b) return;
   state.beds = +b.dataset.beds;
@@ -262,6 +391,8 @@ $('list').addEventListener('click', (e) => {
   const all = [...state.listings, ...Object.values(state.saved).map((s) => s.listing)];
   const sb = e.target.closest('[data-save]');
   if (sb) { e.stopPropagation(); toggleSave(all.find((l) => l.id === sb.dataset.save)); return; }
+  const cb = e.target.closest('[data-cmp]');
+  if (cb) { e.stopPropagation(); toggleCmp(cb.dataset.cmp); return; }
   const card = e.target.closest('.card');
   if (card) selectCard(card.dataset.id, true);
 });

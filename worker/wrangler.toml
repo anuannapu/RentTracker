@@ -1,0 +1,7 @@
+name = "renttracker-api"
+main = "index.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+# Comma-separated list of sites allowed to call the proxy (localhost is always allowed for dev)
+ALLOWED_ORIGINS = "https://anuannapu.github.io"

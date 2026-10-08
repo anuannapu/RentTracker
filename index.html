@@ -66,6 +66,7 @@
   </section>
 
   <section id="stats" class="stats"></section>
+  <section id="trend" class="trend" hidden></section>
 
   <div class="layout">
     <div class="results">
@@ -74,6 +75,20 @@
     <div class="mapwrap"><div id="map"></div></div>
   </div>
 </main>
+
+<div id="cmpbar" class="cmpbar" hidden>
+  <span id="cmpMsg"></span>
+  <button id="cmpGo" disabled>Compare side by side</button>
+  <button id="cmpClear" class="ghost">Clear</button>
+</div>
+
+<dialog id="compare" class="wide">
+  <form method="dialog">
+    <h3>Side-by-side</h3>
+    <div id="compareBody"></div>
+    <div class="dlg-row"><button value="close">Close</button></div>
+  </form>
+</dialog>
 
 <dialog id="settings">
   <form method="dialog">
@@ -87,6 +102,7 @@
 </dialog>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="config.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

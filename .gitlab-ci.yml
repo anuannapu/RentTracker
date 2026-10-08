@@ -3,7 +3,7 @@ pages:
   image: alpine:latest
   script:
     - mkdir public
-    - cp index.html styles.css app.js public/
+    - cp index.html styles.css app.js config.js public/
   artifacts:
     paths:
       - public
