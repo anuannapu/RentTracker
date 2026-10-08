@@ -4,59 +4,85 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RentTracker – Rentals by Zip Code</title>
+<meta name="description" content="Search and track rental listings by zip code, with price history and area insights.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<header class="top">
-  <div class="brand">🏠 RentTracker</div>
-  <form id="searchForm" class="search" autocomplete="off">
-    <input id="zip" inputmode="numeric" maxlength="5" pattern="\d{5}" placeholder="Enter zip code, e.g. 98101" required>
-    <button type="submit">Search rentals</button>
+
+<header class="nav">
+  <a class="brand" href="./"><span class="logo">⌂</span><span>Rent<em>Tracker</em></span></a>
+  <form class="zipform compact" autocomplete="off">
+    <input class="zipinput" inputmode="numeric" maxlength="5" pattern="\d{5}" placeholder="Zip code" aria-label="Zip code" required>
+    <button type="submit" aria-label="Search">Search</button>
   </form>
   <nav class="tabs">
-    <button class="tab active" data-view="results">Results</button>
-    <button class="tab" data-view="saved">Saved <span id="savedCount">0</span></button>
-    <button class="tab" id="settingsBtn">⚙︎</button>
+    <button class="tab active" data-view="results">Explore</button>
+    <button class="tab" data-view="saved">Tracking <span id="savedCount" class="count">0</span></button>
+    <button class="tab icon" id="settingsBtn" aria-label="Settings">⚙︎</button>
   </nav>
 </header>
 
-<section class="filters" id="filters">
-  <label>Min $ <input id="minPrice" type="number" min="0" step="100"></label>
-  <label>Max $ <input id="maxPrice" type="number" min="0" step="100"></label>
-  <label>Beds
-    <select id="beds"><option value="0">Any</option><option value="1">1+</option><option value="2">2+</option><option value="3">3+</option><option value="4">4+</option></select>
-  </label>
-  <label>Baths
-    <select id="baths"><option value="0">Any</option><option value="1">1+</option><option value="2">2+</option><option value="3">3+</option></select>
-  </label>
-  <label>Type
-    <select id="type"><option value="">Any</option><option>Apartment</option><option>House</option><option>Condo</option><option>Townhouse</option></select>
-  </label>
-  <label>Sort
-    <select id="sort">
-      <option value="new">Newest</option><option value="low">Price: low → high</option>
-      <option value="high">Price: high → low</option><option value="sqft">Largest</option>
-    </select>
-  </label>
+<section id="hero" class="hero">
+  <div class="hero-inner">
+    <p class="eyebrow">Rental search · by zip code</p>
+    <h1>Find the place that <em>feels like home</em> &mdash; and watch the price.</h1>
+    <p class="lede">Type a zip code. See every rental on the map, compare it to the neighborhood, and track the ones you love. We'll show you when the rent moves.</p>
+    <form class="zipform big" autocomplete="off">
+      <input class="zipinput" inputmode="numeric" maxlength="5" pattern="\d{5}" placeholder="Enter a zip code" aria-label="Zip code" required autofocus>
+      <button type="submit">Find rentals →</button>
+    </form>
+    <div class="chips"><span>Try</span>
+      <button data-zip="98101">Seattle</button><button data-zip="94103">San Francisco</button>
+      <button data-zip="10001">New York</button><button data-zip="60614">Chicago</button>
+      <button data-zip="78701">Austin</button><button data-zip="33139">Miami Beach</button>
+    </div>
+  </div>
+  <svg class="skyline" viewBox="0 0 1200 220" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+    <circle cx="930" cy="70" r="46" class="sun"/>
+    <g class="far"><rect x="40" y="110" width="70" height="110"/><rect x="130" y="80" width="56" height="140"/><rect x="330" y="95" width="80" height="125"/><rect x="560" y="70" width="64" height="150"/><rect x="760" y="100" width="90" height="120"/><rect x="1010" y="85" width="70" height="135"/><rect x="1110" y="115" width="80" height="105"/></g>
+    <g class="near"><rect x="0" y="150" width="90" height="70"/><rect x="100" y="120" width="76" height="100"/><rect x="200" y="140" width="110" height="80"/><rect x="330" y="105" width="64" height="115"/><rect x="420" y="135" width="120" height="85"/><rect x="560" y="115" width="70" height="105"/><rect x="650" y="150" width="130" height="70"/><rect x="800" y="110" width="84" height="110"/><rect x="900" y="140" width="100" height="80"/><rect x="1020" y="120" width="70" height="100"/><rect x="1100" y="150" width="100" height="70"/></g>
+  </svg>
 </section>
 
-<main class="layout">
-  <div id="map"></div>
-  <aside class="panel">
-    <div id="summary" class="summary"></div>
-    <div id="list" class="list"></div>
-  </aside>
+<main id="app" class="app" hidden>
+  <section class="toolbar">
+    <div class="filters" id="filters">
+      <label class="field"><span>Min</span><input id="minPrice" type="number" min="0" step="100" placeholder="$0"></label>
+      <label class="field"><span>Max</span><input id="maxPrice" type="number" min="0" step="100" placeholder="Any"></label>
+      <div class="seg" id="bedSeg" role="group" aria-label="Bedrooms">
+        <button data-beds="0" class="on">Any</button><button data-beds="1">1+</button><button data-beds="2">2+</button><button data-beds="3">3+</button><button data-beds="4">4+</button>
+      </div>
+      <label class="field"><span>Baths</span>
+        <select id="baths"><option value="0">Any</option><option value="1">1+</option><option value="2">2+</option><option value="3">3+</option></select></label>
+      <label class="field"><span>Type</span>
+        <select id="type"><option value="">Any</option><option>Apartment</option><option>House</option><option>Condo</option><option>Townhouse</option></select></label>
+      <label class="field"><span>Sort</span>
+        <select id="sort"><option value="new">Newest</option><option value="low">Price ↑</option><option value="high">Price ↓</option><option value="sqft">Largest</option><option value="deal">Best value</option></select></label>
+    </div>
+  </section>
+
+  <section id="stats" class="stats"></section>
+
+  <div class="layout">
+    <div class="results">
+      <div id="list" class="grid"></div>
+    </div>
+    <div class="mapwrap"><div id="map"></div></div>
+  </div>
 </main>
 
 <dialog id="settings">
   <form method="dialog">
     <h3>Data source</h3>
-    <p>By default the app shows generated <b>demo listings</b>. For live rentals, paste a
+    <p>By default RentTracker shows generated <b>demo listings</b>. For live rentals, paste a
       <a href="https://app.rentcast.io/app/api" target="_blank" rel="noopener">RentCast</a> API key
-      (Zillow doesn't offer a public API). The key is stored only in this browser.</p>
+      (Zillow has no public API). The key stays in this browser only.</p>
     <input id="apiKey" type="password" placeholder="RentCast API key (optional)">
-    <div class="row"><button value="save" id="saveKey">Save</button><button value="cancel">Cancel</button></div>
+    <div class="dlg-row"><button value="cancel" class="ghost">Cancel</button><button value="save" id="saveKey">Save</button></div>
   </form>
 </dialog>
 
