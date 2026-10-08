@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RentTracker – Rentals by Zip Code</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">🏠 RentTracker</div>
+  <form id="searchForm" class="search" autocomplete="off">
+    <input id="zip" inputmode="numeric" maxlength="5" pattern="\d{5}" placeholder="Enter zip code, e.g. 98101" required>
+    <button type="submit">Search rentals</button>
+  </form>
+  <nav class="tabs">
+    <button class="tab active" data-view="results">Results</button>
+    <button class="tab" data-view="saved">Saved <span id="savedCount">0</span></button>
+    <button class="tab" id="settingsBtn">⚙︎</button>
+  </nav>
+</header>
+
+<section class="filters" id="filters">
+  <label>Min $ <input id="minPrice" type="number" min="0" step="100"></label>
+  <label>Max $ <input id="maxPrice" type="number" min="0" step="100"></label>
+  <label>Beds
+    <select id="beds"><option value="0">Any</option><option value="1">1+</option><option value="2">2+</option><option value="3">3+</option><option value="4">4+</option></select>
+  </label>
+  <label>Baths
+    <select id="baths"><option value="0">Any</option><option value="1">1+</option><option value="2">2+</option><option value="3">3+</option></select>
+  </label>
+  <label>Type
+    <select id="type"><option value="">Any</option><option>Apartment</option><option>House</option><option>Condo</option><option>Townhouse</option></select>
+  </label>
+  <label>Sort
+    <select id="sort">
+      <option value="new">Newest</option><option value="low">Price: low → high</option>
+      <option value="high">Price: high → low</option><option value="sqft">Largest</option>
+    </select>
+  </label>
+</section>
+
+<main class="layout">
+  <div id="map"></div>
+  <aside class="panel">
+    <div id="summary" class="summary"></div>
+    <div id="list" class="list"></div>
+  </aside>
+</main>
+
+<dialog id="settings">
+  <form method="dialog">
+    <h3>Data source</h3>
+    <p>By default the app shows generated <b>demo listings</b>. For live rentals, paste a
+      <a href="https://app.rentcast.io/app/api" target="_blank" rel="noopener">RentCast</a> API key
+      (Zillow doesn't offer a public API). The key is stored only in this browser.</p>
+    <input id="apiKey" type="password" placeholder="RentCast API key (optional)">
+    <div class="row"><button value="save" id="saveKey">Save</button><button value="cancel">Cancel</button></div>
+  </form>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
